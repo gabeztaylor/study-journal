@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Study Journal</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="header">
+        <div>
+          <h1>Study Journal</h1>
+          <p class="sub">Log a session and append it to <code>docs/Studying.md</code>.</p>
+        </div>
+        <div class="health" id="health"></div>
+      </header>
+
+      <section class="card">
+        <div class="grid">
+          <label class="field">
+            <span class="label">Date</span>
+            <input id="date" type="date" />
+          </label>
+          <label class="field">
+            <span class="label">End time</span>
+            <input id="endTime" type="time" step="60" />
+          </label>
+        </div>
+
+        <div class="field">
+          <div class="row space">
+            <span class="label">Time studied</span>
+            <div class="toggle" role="group" aria-label="Time tracking mode">
+              <button id="modeDuration" class="toggleBtn" type="button" aria-pressed="true">
+                Duration
+              </button>
+              <button id="modeStartEnd" class="toggleBtn" type="button" aria-pressed="false">
+                Start/End
+              </button>
+            </div>
+          </div>
+
+          <div id="durationControls">
+            <div class="chips" id="chips"></div>
+            <div class="row">
+              <label class="field inline">
+                <span class="hint">Custom minutes</span>
+                <input id="customMinutes" type="number" min="1" max="1440" placeholder="e.g. 35" />
+              </label>
+              <div class="summary" id="summary"></div>
+            </div>
+          </div>
+
+          <div id="startEndControls" class="hidden">
+            <label class="field">
+              <span class="label">Start time</span>
+              <input id="startTime" type="time" step="60" />
+            </label>
+            <div class="actions tight">
+              <button id="startNow" class="ghost" type="button">Start now</button>
+              <button id="endNow" class="ghost" type="button">End now</button>
+              <div class="summary" id="summary2"></div>
+            </div>
+          </div>
+        </div>
+
+        <label class="field">
+          <span class="label">What I studied</span>
+          <textarea id="description" rows="4" placeholder="e.g. Continue learning transformers"></textarea>
+        </label>
+
+        <label class="field">
+          <span class="label">Sources</span>
+          <textarea
+            id="sources"
+            rows="3"
+            placeholder="One per line. Links or notes.\ne.g. Karpathy's tutorial on YouTube\nhttps://en.wikipedia.org/wiki/Comparative_advantage"
+          ></textarea>
+          <span class="hint">Tip: one source per line.</span>
+        </label>
+
+        <label class="field">
+          <span class="label">Notes</span>
+          <textarea
+            id="notes"
+            rows="3"
+            placeholder="Anything notable you learned (optional). One note per line.\ne.g. Attention is all you need → self-attention scales well"
+          ></textarea>
+          <span class="hint">Tip: one note per line.</span>
+        </label>
+
+        <div class="actions">
+          <button id="submit" class="primary">Add to Studying.md</button>
+          <button id="clear" class="ghost" type="button">Clear</button>
+          <div class="status" id="status" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="row space">
+          <h2>Preview</h2>
+          <button id="copy" class="ghost" type="button">Copy entry text</button>
+        </div>
+        <pre class="preview" id="preview"></pre>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
+

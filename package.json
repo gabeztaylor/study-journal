@@ -1,0 +1,10 @@
+{
+  "name": "study-journal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local HTML study journal that appends entries to gabeztaylor.github.io/docs/Studying.md",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
+
