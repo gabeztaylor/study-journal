@@ -71,6 +71,12 @@
         </label>
 
         <label class="field">
+          <span class="label">Tags</span>
+          <input id="tags" type="text" placeholder="e.g. transformers, rl, anki" />
+          <span class="hint">Comma-separated. Tags help you track the same topic across days.</span>
+        </label>
+
+        <label class="field">
           <span class="label">Sources</span>
           <textarea
             id="sources"
@@ -89,6 +95,17 @@
           ></textarea>
           <span class="hint">Tip: one note per line.</span>
         </label>
+
+        <div class="field">
+          <span class="label">Screenshots</span>
+          <div id="dropzone" class="dropzone" tabindex="0">
+            <div class="dzTitle">Drag &amp; drop images here</div>
+            <div class="dzSub">or click to select files</div>
+            <input id="screenshots" class="dzInput" type="file" accept="image/*" multiple />
+          </div>
+          <div id="shotList" class="shotList" aria-live="polite"></div>
+          <span class="hint">Images are saved into <code>gabeztaylor.github.io/assets/study-journal/</code>.</span>
+        </div>
 
         <div class="actions">
           <button id="submit" class="primary">Add to Studying.md</button>

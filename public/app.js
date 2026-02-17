@@ -6,6 +6,7 @@ const endTimeEl = $("endTime");
 const startTimeEl = $("startTime");
 const customMinutesEl = $("customMinutes");
 const descriptionEl = $("description");
+const tagsEl = $("tags");
 const sourcesEl = $("sources");
 const notesEl = $("notes");
 const previewEl = $("preview");
@@ -24,6 +25,10 @@ const startEndControlsEl = $("startEndControls");
 const startNowEl = $("startNow");
 const endNowEl = $("endNow");
 
+const dropzoneEl = $("dropzone");
+const screenshotsEl = $("screenshots");
+const shotListEl = $("shotList");
+
 const PRESETS = [
   { label: "15m", minutes: 15 },
   { label: "30m", minutes: 30 },
@@ -35,6 +40,7 @@ const PRESETS = [
 
 let selectedMinutes = 30;
 let mode = "duration"; // "duration" | "startEnd"
+let screenshots = []; // [{url, name, previewDataUrl}]
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -66,6 +72,25 @@ function getSourcesLines() {
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
+}
+
+function normalizeTag(t) {
+  let s = String(t || "").trim();
+  if (!s) return "";
+  if (s.startsWith("#")) s = s.slice(1);
+  s = s.toLowerCase().replace(/\s+/g, "-");
+  s = s.replace(/[^a-z0-9_-]/g, "");
+  return s;
+}
+
+function getTags() {
+  const raw = String(tagsEl.value || "");
+  const parts = raw
+    .split(/[,\\n]+/g)
+    .flatMap((p) => p.split(/\s+/g))
+    .map(normalizeTag)
+    .filter(Boolean);
+  return Array.from(new Set(parts));
 }
 
 function getNotesLines() {
@@ -107,8 +132,10 @@ function buildPreview() {
   const endHHMM = endTimeEl.value;
   const desc = descriptionEl.value.trim().replace(/\s+/g, " ");
   const computed = computeStartEnd();
+  const tags = getTags();
   const sources = getSourcesLines();
   const notes = getNotesLines();
+  const shots = screenshots.map((s) => s.url).filter(Boolean);
 
   if (!dateISO || !endHHMM || !computed || !desc) {
     previewEl.textContent =
@@ -129,6 +156,8 @@ function buildPreview() {
 
   const { start, end, durationMinutes } = computed;
   const entryLine = `- **${formatTime12h(start)} – ${formatTime12h(end)}**: ${desc}`;
+  const tagBlock =
+    tags.length > 0 ? `\n  - **Tags**\n${tags.map((t) => `    - #${t}`).join("\n")}` : "";
   const srcBlock =
     sources.length > 0
       ? `\n  - **Sources**\n${sources.map((s) => `    - ${s}`).join("\n")}`
@@ -137,11 +166,15 @@ function buildPreview() {
     notes.length > 0
       ? `\n  - **Notes**\n${notes.map((n) => `    - ${n}`).join("\n")}`
       : "";
+  const shotBlock =
+    shots.length > 0
+      ? `\n  - **Screenshots**\n${shots.map((u) => `    - ![](${u})`).join("\n")}`
+      : "";
 
   previewEl.textContent = [
     `### ${mdDate(dateISO)}`,
     "",
-    entryLine + srcBlock + notesBlock,
+    entryLine + tagBlock + srcBlock + notesBlock + shotBlock,
   ].join("\n");
 
   const text = `Will log: ${durationMinutes} min (${formatTime12h(start)} → ${formatTime12h(end)})`;
@@ -224,8 +257,10 @@ async function submit() {
     date: dateEl.value,
     endTime: endTimeEl.value,
     description: desc,
+    tags: getTags(),
     sources: getSourcesLines(),
     notes: getNotesLines(),
+    screenshots: screenshots.map((s) => s.url).filter(Boolean),
   };
 
   if (mode === "startEnd") {
@@ -264,10 +299,13 @@ async function submit() {
 
 function clearForm() {
   descriptionEl.value = "";
+  tagsEl.value = "";
   sourcesEl.value = "";
   notesEl.value = "";
   startTimeEl.value = "";
   customMinutesEl.value = "";
+  screenshots = [];
+  renderShots();
   selectedMinutes = 30;
   renderChips();
   setStatus("");
@@ -299,6 +337,7 @@ customMinutesEl.addEventListener("input", () => {
   buildPreview();
 });
 descriptionEl.addEventListener("input", buildPreview);
+tagsEl.addEventListener("input", buildPreview);
 sourcesEl.addEventListener("input", buildPreview);
 notesEl.addEventListener("input", buildPreview);
 
@@ -320,5 +359,92 @@ endNowEl.addEventListener("click", () => {
   if (!dateEl.value) setDefaults();
   setNowTime(endTimeEl);
   setMode("startEnd");
+});
+
+function renderShots() {
+  shotListEl.innerHTML = "";
+  for (const s of screenshots) {
+    const card = document.createElement("div");
+    card.className = "shot";
+    const img = document.createElement("img");
+    img.alt = s.name || "screenshot";
+    img.src = s.previewDataUrl || s.url || "";
+    const meta = document.createElement("div");
+    meta.className = "shotMeta";
+    const name = document.createElement("div");
+    name.className = "shotName";
+    name.textContent = s.name || s.url || "screenshot";
+    const rm = document.createElement("button");
+    rm.type = "button";
+    rm.className = "shotRemove";
+    rm.textContent = "Remove";
+    rm.addEventListener("click", () => {
+      screenshots = screenshots.filter((x) => x !== s);
+      renderShots();
+      buildPreview();
+    });
+    meta.appendChild(name);
+    meta.appendChild(rm);
+    card.appendChild(img);
+    card.appendChild(meta);
+    shotListEl.appendChild(card);
+  }
+}
+
+async function uploadImageFile(file) {
+  if (!file || !file.type || !file.type.startsWith("image/")) return null;
+  if (file.size > 12 * 1024 * 1024) throw new Error("Image too large (max 12MB).");
+
+  const dataUrl = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ""));
+    r.onerror = () => reject(new Error("Failed to read file."));
+    r.readAsDataURL(file);
+  });
+
+  const resp = await fetch("/api/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: file.name, dataUrl }),
+  });
+  const j = await resp.json();
+  if (!resp.ok || !j.ok) throw new Error(j.error || "Upload failed");
+  return { url: j.url, name: j.filename || file.name, previewDataUrl: dataUrl };
+}
+
+async function handleFiles(files) {
+  const list = Array.from(files || []);
+  if (list.length === 0) return;
+  setStatus(`Uploading ${list.length} image(s)…`);
+  try {
+    for (const f of list) {
+      const uploaded = await uploadImageFile(f);
+      if (uploaded) screenshots.unshift(uploaded);
+    }
+    setStatus("Screenshots added.", "ok");
+    renderShots();
+    buildPreview();
+  } catch (e) {
+    setStatus(String(e.message || e), "bad");
+  }
+}
+
+dropzoneEl.addEventListener("click", () => screenshotsEl.click());
+dropzoneEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") screenshotsEl.click();
+});
+dropzoneEl.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  dropzoneEl.classList.add("dragover");
+});
+dropzoneEl.addEventListener("dragleave", () => dropzoneEl.classList.remove("dragover"));
+dropzoneEl.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropzoneEl.classList.remove("dragover");
+  void handleFiles(e.dataTransfer?.files);
+});
+screenshotsEl.addEventListener("change", () => {
+  void handleFiles(screenshotsEl.files);
+  screenshotsEl.value = "";
 });
 
