@@ -11,7 +11,9 @@
       <header class="header">
         <div>
           <h1>Study Journal</h1>
-          <p class="sub">Log a session and append it to <code>docs/Studying.md</code>.</p>
+          <p class="sub">
+            Log a session locally. Writes to <code>docs/studying/*.json</code> (and also updates <code>docs/Studying.md</code> for now).
+          </p>
         </div>
         <div class="health" id="health"></div>
       </header>
@@ -108,9 +110,46 @@
         </div>
 
         <div class="actions">
-          <button id="submit" class="primary">Add to Studying.md</button>
+          <button id="submit" class="primary">Save entry</button>
           <button id="clear" class="ghost" type="button">Clear</button>
           <div class="status" id="status" aria-live="polite"></div>
+        </div>
+
+        <div class="publish">
+          <div class="row space">
+            <div>
+              <div class="label">Publish</div>
+              <div class="hint">Stages journal changes, commits, and pushes to GitHub.</div>
+            </div>
+            <button id="publish" class="primary" type="button">Commit &amp; Push</button>
+          </div>
+          <label class="field">
+            <span class="label">Commit message (optional)</span>
+            <input id="publishMessage" type="text" placeholder="e.g. study journal update" />
+          </label>
+          <div class="actions tight">
+            <div class="status" id="publishStatus" aria-live="polite"></div>
+          </div>
+          <pre class="preview publishOutput" id="publishOutput"></pre>
+        </div>
+
+        <div class="publish">
+          <div class="row space">
+            <div>
+              <div class="label">Anki</div>
+              <div class="hint">Export “Master Deck” via AnkiConnect (excludes suspended), then optionally commit &amp; push.</div>
+            </div>
+            <button id="ankiSync" class="primary" type="button">Sync Anki → Site</button>
+          </div>
+          <label class="field">
+            <span class="label">Commit message (optional)</span>
+            <input id="ankiMessage" type="text" placeholder="e.g. anki sync" />
+          </label>
+          <div class="actions tight">
+            <button id="ankiSyncPublish" class="ghost" type="button">Sync + Commit &amp; Push</button>
+            <div class="status" id="ankiStatus" aria-live="polite"></div>
+          </div>
+          <pre class="preview publishOutput" id="ankiOutput"></pre>
         </div>
       </section>
 

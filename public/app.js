@@ -18,6 +18,17 @@ const clearEl = $("clear");
 const copyEl = $("copy");
 const healthEl = $("health");
 
+const publishEl = $("publish");
+const publishMessageEl = $("publishMessage");
+const publishStatusEl = $("publishStatus");
+const publishOutputEl = $("publishOutput");
+
+const ankiSyncEl = $("ankiSync");
+const ankiSyncPublishEl = $("ankiSyncPublish");
+const ankiMessageEl = $("ankiMessage");
+const ankiStatusEl = $("ankiStatus");
+const ankiOutputEl = $("ankiOutput");
+
 const modeDurationEl = $("modeDuration");
 const modeStartEndEl = $("modeStartEnd");
 const durationControlsEl = $("durationControls");
@@ -155,9 +166,17 @@ function buildPreview() {
   }
 
   const { start, end, durationMinutes } = computed;
-  const entryLine = `- **${formatTime12h(start)} – ${formatTime12h(end)}**: ${desc}`;
+  const dur =
+    durationMinutes < 60
+      ? `${durationMinutes}m`
+      : durationMinutes % 60 === 0
+        ? `${Math.floor(durationMinutes / 60)}h`
+        : `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`;
+  const entryLine = `- **${formatTime12h(start)} – ${formatTime12h(end)}** (${dur}): ${desc}`;
   const tagBlock =
-    tags.length > 0 ? `\n  - **Tags**\n${tags.map((t) => `    - #${t}`).join("\n")}` : "";
+    tags.length > 0
+      ? `\n  - **Tags**\n${tags.map((t) => `    - [#${t}](#tag-${t})`).join("\n")}`
+      : "";
   const srcBlock =
     sources.length > 0
       ? `\n  - **Sources**\n${sources.map((s) => `    - ${s}`).join("\n")}`
@@ -186,6 +205,20 @@ function setStatus(msg, kind) {
   statusEl.classList.remove("ok", "bad");
   if (kind) statusEl.classList.add(kind);
   statusEl.textContent = msg || "";
+}
+
+function setPublishStatus(msg, kind) {
+  if (!publishStatusEl) return;
+  publishStatusEl.classList.remove("ok", "bad");
+  if (kind) publishStatusEl.classList.add(kind);
+  publishStatusEl.textContent = msg || "";
+}
+
+function setAnkiStatus(msg, kind) {
+  if (!ankiStatusEl) return;
+  ankiStatusEl.classList.remove("ok", "bad");
+  if (kind) ankiStatusEl.classList.add(kind);
+  ankiStatusEl.textContent = msg || "";
 }
 
 function renderChips() {
@@ -274,7 +307,7 @@ async function submit() {
   }
 
   submitEl.disabled = true;
-  setStatus("Writing to Studying.md…");
+  setStatus("Saving entry…");
   try {
     const r = await fetch("/api/entry", {
       method: "POST",
@@ -289,11 +322,93 @@ async function submit() {
         : `Created new section for ${j.mdDate}.`,
       "ok",
     );
+    if (publishOutputEl) {
+      publishOutputEl.textContent =
+        `Saved.\n\nUpdated:\n` +
+        `- ${j.dataPath || "docs/studying/YYYY-MM-DD.json"}\n` +
+        `- docs/Studying.md\n`;
+    }
     await refreshHealth();
   } catch (e) {
     setStatus(String(e.message || e), "bad");
   } finally {
     submitEl.disabled = false;
+  }
+}
+
+async function publish() {
+  if (!publishEl) return;
+  publishEl.disabled = true;
+  setPublishStatus("Publishing…");
+  if (publishOutputEl) publishOutputEl.textContent = "";
+
+  try {
+    const payload = {
+      message: String(publishMessageEl?.value || "").trim() || undefined,
+    };
+    const r = await fetch("/api/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const ct = r.headers.get("content-type") || "";
+    const text = await r.text();
+    const j = ct.includes("application/json") ? JSON.parse(text || "{}") : null;
+    if (!r.ok || !j.ok) {
+      if (publishOutputEl) publishOutputEl.textContent = j ? JSON.stringify(j, null, 2) : text;
+      throw new Error((j && j.error) ? j.error : `Publish failed: ${text || r.status}`);
+    }
+
+    setPublishStatus(j.message ? String(j.message) : "Published to GitHub.", "ok");
+    if (publishOutputEl) {
+      const out = {
+        stagedFiles: j.stagedFiles,
+        commitMsg: j.commitMsg,
+        commit: j.commit,
+        push: j.push,
+      };
+      publishOutputEl.textContent = JSON.stringify(out, null, 2);
+    }
+  } catch (e) {
+    setPublishStatus(String(e.message || e), "bad");
+  } finally {
+    publishEl.disabled = false;
+  }
+}
+
+async function syncAnki({ publish = false } = {}) {
+  if (!ankiSyncEl) return;
+  ankiSyncEl.disabled = true;
+  if (ankiSyncPublishEl) ankiSyncPublishEl.disabled = true;
+  setAnkiStatus(publish ? "Syncing + publishing…" : "Syncing…");
+  if (ankiOutputEl) ankiOutputEl.textContent = "";
+
+  try {
+    const payload = {
+      deckRoot: "Master Deck",
+      publish,
+      message: String(ankiMessageEl?.value || "").trim() || undefined,
+    };
+    const r = await fetch("/api/anki/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const ct = r.headers.get("content-type") || "";
+    const text = await r.text();
+    const j = ct.includes("application/json") ? JSON.parse(text || "{}") : null;
+    if (!r.ok || !j.ok) {
+      if (ankiOutputEl) ankiOutputEl.textContent = j ? JSON.stringify(j, null, 2) : text;
+      throw new Error((j && j.error) ? j.error : `Anki sync failed: ${text || r.status}`);
+    }
+
+    setAnkiStatus(publish ? "Synced + published." : "Synced.", "ok");
+    if (ankiOutputEl) ankiOutputEl.textContent = JSON.stringify(j, null, 2);
+  } catch (e) {
+    setAnkiStatus(String(e.message || e), "bad");
+  } finally {
+    ankiSyncEl.disabled = false;
+    if (ankiSyncPublishEl) ankiSyncPublishEl.disabled = false;
   }
 }
 
@@ -344,6 +459,9 @@ notesEl.addEventListener("input", buildPreview);
 submitEl.addEventListener("click", submit);
 clearEl.addEventListener("click", clearForm);
 copyEl.addEventListener("click", copyPreview);
+publishEl?.addEventListener("click", publish);
+ankiSyncEl?.addEventListener("click", () => syncAnki({ publish: false }));
+ankiSyncPublishEl?.addEventListener("click", () => syncAnki({ publish: true }));
 
 modeDurationEl.addEventListener("click", () => setMode("duration"));
 modeStartEndEl.addEventListener("click", () => setMode("startEnd"));

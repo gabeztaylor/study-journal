@@ -80,6 +80,19 @@ h2 {
   margin: 14px 0;
 }
 
+.publish {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+  display: grid;
+  gap: 10px;
+}
+
+.publishOutput {
+  max-height: 220px;
+  overflow: auto;
+}
+
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

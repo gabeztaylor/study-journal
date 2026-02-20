@@ -14,16 +14,21 @@ APP_DIR="${home_dir}/Desktop/study-journal"
 URL="http://localhost:3030"
 HEALTH="${URL}/api/health"
 
-if /usr/bin/curl -fsS "$HEALTH" >/dev/null 2>&1; then
-  /usr/bin/open "$URL"
-  exit 0
+health_json=""
+if health_json="$(/usr/bin/curl -fsS "$HEALTH" 2>/dev/null || true)"; then
+  # If the server is running but it's an older version (no JSON pipeline fields),
+  # force a restart so code changes take effect.
+  if [[ "${health_json}" == *"studyingDataDir"* && "${health_json}" == *"ankiExportPath"* ]]; then
+    /usr/bin/open "$URL"
+    exit 0
+  fi
 fi
 
 # Start server in Terminal (so it stays running) if not already healthy.
 /usr/bin/osascript <<EOF
 tell application "Terminal"
   activate
-  do script "cd \"${APP_DIR}\" && npm start"
+  do script "cd \"${APP_DIR}\" && (lsof -i :3030 -t 2>/dev/null | xargs -I{} kill {} 2>/dev/null || true) && npm start"
 end tell
 EOF
 
