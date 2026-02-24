@@ -14,6 +14,7 @@ const summaryEl = $("summary");
 const summary2El = $("summary2");
 const statusEl = $("status");
 const submitEl = $("submit");
+const updateEl = $("update");
 const clearEl = $("clear");
 const copyEl = $("copy");
 const healthEl = $("health");
@@ -52,6 +53,7 @@ const PRESETS = [
 let selectedMinutes = 30;
 let mode = "duration"; // "duration" | "startEnd"
 let screenshots = []; // [{url, name, previewDataUrl}]
+let lastSavedKey = null; // { start: "YYYY-MM-DDTHH:MM", end: "YYYY-MM-DDTHH:MM" }
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -97,7 +99,7 @@ function normalizeTag(t) {
 function getTags() {
   const raw = String(tagsEl.value || "");
   const parts = raw
-    .split(/[,\\n]+/g)
+    .split(/[,\n]+/g)
     .flatMap((p) => p.split(/\s+/g))
     .map(normalizeTag)
     .filter(Boolean);
@@ -277,12 +279,21 @@ function setNowTime(el) {
   el.value = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
 }
 
-async function submit() {
+async function submit({ update = false } = {}) {
   const computed = computeStartEnd();
   const desc = descriptionEl.value.trim();
 
   if (!computed || computed.error || !dateEl.value || !endTimeEl.value || !desc) {
     setStatus("Missing required fields.", "bad");
+    return;
+  }
+
+  if (update && (!lastSavedKey || !lastSavedKey.start || !lastSavedKey.end)) {
+    setStatus("Nothing to update yet — save an entry first.", "bad");
+    return;
+  }
+  if (update && lastSavedKey && String(lastSavedKey.start || "").slice(0, 10) !== String(dateEl.value || "")) {
+    setStatus("Last saved entry was on a different date — save a new entry for this day first.", "bad");
     return;
   }
 
@@ -306,7 +317,10 @@ async function submit() {
     payload.durationMinutes = computed.durationMinutes;
   }
 
+  if (update) payload.updateKey = lastSavedKey;
+
   submitEl.disabled = true;
+  if (updateEl) updateEl.disabled = true;
   setStatus("Saving entry…");
   try {
     const r = await fetch("/api/entry", {
@@ -316,15 +330,21 @@ async function submit() {
     });
     const j = await r.json();
     if (!r.ok || !j.ok) throw new Error(j.error || "Failed to write");
+
+    if (j.session && j.session.start && j.session.end) {
+      lastSavedKey = { start: j.session.start, end: j.session.end };
+    }
+    if (updateEl) updateEl.disabled = !lastSavedKey;
+
     setStatus(
-      j.insertedIntoExistingDate
-        ? `Added to ${j.mdDate}.`
-        : `Created new section for ${j.mdDate}.`,
+      j.updatedExistingEntry
+        ? `Updated ${j.mdDate}.`
+        : (j.insertedIntoExistingDate ? `Added to ${j.mdDate}.` : `Created new section for ${j.mdDate}.`),
       "ok",
     );
     if (publishOutputEl) {
       publishOutputEl.textContent =
-        `Saved.\n\nUpdated:\n` +
+        `${j.updatedExistingEntry ? "Updated" : "Saved"}.\n\nUpdated:\n` +
         `- ${j.dataPath || "docs/studying/YYYY-MM-DD.json"}\n` +
         `- docs/Studying.md\n`;
     }
@@ -333,6 +353,7 @@ async function submit() {
     setStatus(String(e.message || e), "bad");
   } finally {
     submitEl.disabled = false;
+    if (updateEl) updateEl.disabled = !lastSavedKey;
   }
 }
 
@@ -456,7 +477,8 @@ tagsEl.addEventListener("input", buildPreview);
 sourcesEl.addEventListener("input", buildPreview);
 notesEl.addEventListener("input", buildPreview);
 
-submitEl.addEventListener("click", submit);
+submitEl.addEventListener("click", () => submit({ update: false }));
+updateEl?.addEventListener("click", () => submit({ update: true }));
 clearEl.addEventListener("click", clearForm);
 copyEl.addEventListener("click", copyPreview);
 publishEl?.addEventListener("click", publish);

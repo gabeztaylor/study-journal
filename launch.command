@@ -16,9 +16,9 @@ HEALTH="${URL}/api/health"
 
 health_json=""
 if health_json="$(/usr/bin/curl -fsS "$HEALTH" 2>/dev/null || true)"; then
-  # If the server is running but it's an older version (no JSON pipeline fields),
-  # force a restart so code changes take effect.
-  if [[ "${health_json}" == *"studyingDataDir"* && "${health_json}" == *"ankiExportPath"* ]]; then
+  # If the server is running and is new enough, just open the UI.
+  # Otherwise, force a restart so code changes take effect.
+  if [[ "${health_json}" == *"studyingDataDir"* && "${health_json}" == *"ankiExportPath"* && "${health_json}" == *"ankiExportSchemaVersion\":3"* ]]; then
     /usr/bin/open "$URL"
     exit 0
   fi

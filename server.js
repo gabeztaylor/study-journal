@@ -127,6 +127,18 @@ function parseLocalDateTime(dateISO, timeHHMM) {
   return new Date(y, m - 1, d, hh, mm, 0, 0);
 }
 
+function parseLocalStampNoSeconds(stamp) {
+  // Local time string: YYYY-MM-DDTHH:MM (no timezone, no seconds)
+  const m = String(stamp || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const hh = Number(m[4]);
+  const mm = Number(m[5]);
+  return new Date(y, mo - 1, d, hh, mm, 0, 0);
+}
+
 function computeStartEnd({ dateISO, startTimeHHMM, endTimeHHMM, durationMinutes }) {
   const end = parseLocalDateTime(dateISO, endTimeHHMM);
   if (startTimeHHMM) {
@@ -228,6 +240,7 @@ function insertOrAppendStudyingJson({
   sources,
   notes,
   screenshots,
+  updateKey,
   dryRun = false,
 }) {
   const { start, end, durationMinutes: computedMinutes } = computeStartEnd({
@@ -254,13 +267,26 @@ function insertOrAppendStudyingJson({
   if (!Array.isArray(existing.sessions)) existing.sessions = [];
   existing.date = String(existing.date || dateISO);
 
-  existing.sessions.unshift(session);
+  let updated = false;
+  if (updateKey && updateKey.start && updateKey.end) {
+    const idx = existing.sessions.findIndex(
+      (s) => String(s?.start || "") === String(updateKey.start) && String(s?.end || "") === String(updateKey.end),
+    );
+    if (idx >= 0) {
+      existing.sessions[idx] = session;
+      updated = true;
+    } else {
+      existing.sessions.unshift(session);
+    }
+  } else {
+    existing.sessions.unshift(session);
+  }
 
   // Keep newest->oldest by end-time if any weird ordering creeps in.
   existing.sessions.sort((a, b) => String(b.end || "").localeCompare(String(a.end || "")));
 
   const dataPath = writeDayJson(dateISO, existing, { dryRun });
-  return { dataPath, session };
+  return { dataPath, session, updated };
 }
 
 function run(cmd, args, { cwd }) {
@@ -428,11 +454,18 @@ async function exportMasterDeckSnapshot({ deckRoot = "Master Deck", excludeSuspe
       if (excludeSuspended && Number(c?.queue) === -1) continue;
       const frontHtml = rewriteAndExportMedia(pickFront(c), mediaMap);
       const backHtml = rewriteAndExportMedia(pickBack(c), mediaMap);
+      const modSec = Number(c?.mod ?? 0) || 0; // Anki epoch seconds, usually changes on review/schedule update
       cards.push({
         cardId: c?.cardId ?? c?.id ?? null,
         noteId: c?.note ?? c?.noteId ?? null,
         deckName: String(c?.deckName || ""),
         state: cardStateFromType(c?.type),
+        // Card stats (used by the /Anki page spotlights)
+        reviews: Number(c?.reps ?? c?.reviews ?? 0) || 0,
+        lapses: Number(c?.lapses ?? 0) || 0,
+        intervalDays: Number(c?.ivl ?? c?.interval ?? 0) || 0,
+        easeFactor: Number(c?.factor ?? c?.easeFactor ?? 0) || 0,
+        lastSeenAt: modSec > 0 ? new Date(modSec * 1000).toISOString() : "",
         frontHtml,
         backHtml,
         frontText: stripHtml(frontHtml),
@@ -443,7 +476,7 @@ async function exportMasterDeckSnapshot({ deckRoot = "Master Deck", excludeSuspe
   const media = await exportMediaFiles(mediaMap);
 
   return {
-    version: 1,
+    version: 3,
     deckRoot: root,
     generatedAt: new Date().toISOString(),
     excludeSuspended: Boolean(excludeSuspended),
@@ -718,6 +751,7 @@ function insertOrAppendStudyingMd({
   sources,
   notes,
   screenshots,
+  updateKey,
   dryRun = false,
 }) {
   if (!fs.existsSync(STUDYING_MD_PATH)) {
@@ -752,12 +786,41 @@ function insertOrAppendStudyingMd({
   const { frontmatter, rest } = splitFrontmatter(md);
   const parsed = parseDateSections(rest);
   let insertedIntoExistingDate = false;
+  let updatedExistingEntry = false;
 
   const existing = parsed.sections.find((s) => s.mdDate === mdDate);
   if (existing) {
     insertedIntoExistingDate = true;
-    const body = (existing.body || "").replace(/^\s*\n+/, "");
-    existing.body = entryBlock + body;
+    if (updateKey && updateKey.start && updateKey.end) {
+      const oldStart = parseLocalStampNoSeconds(updateKey.start);
+      const oldEnd = parseLocalStampNoSeconds(updateKey.end);
+      if (oldStart && oldEnd) {
+        const oldStartLabel = formatTime12h(oldStart);
+        const oldEndLabel = formatTime12h(oldEnd);
+        const entryRe = /^\s*-\s+\*\*([^*]+?)\s+–\s+([^*]+?)\*\*/;
+        const lines = String(existing.body || "").split("\n");
+        for (let i = 0; i < lines.length; i++) {
+          const m = lines[i].match(entryRe);
+          if (!m) continue;
+          const a = String(m[1] || "").trim();
+          const b = String(m[2] || "").trim();
+          if (a !== oldStartLabel || b !== oldEndLabel) continue;
+          let j = i + 1;
+          while (j < lines.length && !entryRe.test(lines[j])) j++;
+          const newLines = String(entryBlock).split("\n");
+          // Avoid double-adding a trailing newline when splicing line arrays.
+          if (newLines.length > 0 && newLines[newLines.length - 1] === "") newLines.pop();
+          lines.splice(i, j - i, ...newLines);
+          existing.body = lines.join("\n").replace(/^\s*\n+/, "");
+          updatedExistingEntry = true;
+          break;
+        }
+      }
+    }
+    if (!updatedExistingEntry) {
+      const body = String(existing.body || "").replace(/^\s*\n+/, "");
+      existing.body = entryBlock + body;
+    }
   } else {
     parsed.sections.push({ mdDate, key: mdDateToKey(mdDate), body: entryBlock });
   }
@@ -774,6 +837,7 @@ function insertOrAppendStudyingMd({
   return {
     mdDate,
     insertedIntoExistingDate,
+    updatedExistingEntry,
     entryPreview: entryBlock.trimEnd(),
     dateOrder: order,
     dryRun,
@@ -834,6 +898,7 @@ function validateEntry(payload) {
   const sources = Array.isArray(payload.sources) ? payload.sources : [];
   const notes = Array.isArray(payload.notes) ? payload.notes : [];
   const screenshots = Array.isArray(payload.screenshots) ? payload.screenshots : [];
+  const updateKeyRaw = payload && typeof payload.updateKey === "object" && payload.updateKey ? payload.updateKey : null;
   const dryRun = Boolean(payload.dryRun);
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) {
@@ -870,6 +935,14 @@ function validateEntry(payload) {
       .map((u) => String(u).trim())
       .filter((u) => u.startsWith("/assets/study-journal/"))
       .slice(0, 12),
+    updateKey: (() => {
+      if (!updateKeyRaw || typeof updateKeyRaw !== "object") return undefined;
+      const start = String(updateKeyRaw.start || "").trim();
+      const end = String(updateKeyRaw.end || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(start)) return undefined;
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(end)) return undefined;
+      return { start, end };
+    })(),
     dryRun,
   };
 }
@@ -892,6 +965,9 @@ const server = http.createServer(async (req, res) => {
     if (method === "GET" && u.pathname === "/api/health") {
       return sendJson(res, 200, {
         ok: true,
+        serverVersion: "2026-02-21",
+        studyingSchemaVersion: 1,
+        ankiExportSchemaVersion: 3,
         studyingMdPath: STUDYING_MD_PATH,
         studyingMdExists: fs.existsSync(STUDYING_MD_PATH),
         studyingDataDir: STUDYING_DATA_DIR,
@@ -935,6 +1011,8 @@ const server = http.createServer(async (req, res) => {
         ...mdResult,
         dataPath: jsonResult.dataPath,
         session: jsonResult.session,
+        updatedJson: jsonResult.updated,
+        updatedExistingEntry: Boolean(mdResult.updatedExistingEntry || jsonResult.updated),
       });
     }
 
@@ -1024,6 +1102,8 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, {
           ok: true,
           wrote: ANKI_MASTER_EXPORT_PATH,
+          version: snapshot.version,
+          statsIncluded: Number(snapshot.version) >= 2,
           cards: snapshot.cards.length,
         });
       }
